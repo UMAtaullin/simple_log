@@ -291,6 +291,12 @@
           margin-bottom: 10px;
           border-left: 4px solid #e74c3c;
         }
+        .layer-core {
+          color: #27ae60;
+          font-size: 14px;
+          font-weight: 500;
+          margin-top: 5px;
+        }
       }
     </style>
   </head>
@@ -402,6 +408,29 @@
                   type="number"
                   id="depth-to"
                   name="depth_to"
+                  step="0.1"
+                  placeholder="2.5"
+                />
+              </div>
+            </div>
+            <!-- ДОБАВЬТЕ ЭТОТ БЛОК ПОСЛЕ ПОЛЕЙ ГЛУБИНЫ -->
+            <div style="display: flex; gap: 10px; margin-bottom: 15px">
+              <div class="form-group" style="flex: 1">
+                <label for="core-from">Керн от (м)</label>
+                <input
+                  type="number"
+                  id="core-from"
+                  name="core_from"
+                  step="0.1"
+                  placeholder="0.0"
+                />
+              </div>
+              <div class="form-group" style="flex: 1">
+                <label for="core-to">Керн до (м)</label>
+                <input
+                  type="number"
+                  id="core-to"
+                  name="core_to"
                   step="0.1"
                   placeholder="2.5"
                 />
@@ -582,10 +611,17 @@
           const wellId = formData.get('well_id')
           const depthFrom = parseFloat(formData.get('depth_from'))
           const depthTo = parseFloat(formData.get('depth_to'))
+          const coreFrom = parseFloat(formData.get('core_from')) || null
+          const coreTo = parseFloat(formData.get('core_to')) || null
 
-          // ВАЛИДАЦИЯ
+          // Более надежная валидация чисел
           if (isNaN(depthFrom) || isNaN(depthTo)) {
-            this.showMessage('❌ Введите корректные значения глубины', 'error')
+            this.showMessage('❌ Отобрали ли вы пробы с каждого слоя?', 'error')
+            return
+          }
+
+          if (depthFrom < 0 || depthTo < 0) {
+            this.showMessage('❌ Глубина не может быть отрицательной', 'error')
             return
           }
 
@@ -597,10 +633,30 @@
             return
           }
 
+          // Валидация керна, если указан
+          if (coreFrom !== null && coreTo !== null) {
+            if (coreFrom < depthFrom || coreTo > depthTo) {
+              this.showMessage(
+                '❌ Интервал керна должен быть в пределах слоя',
+                'error'
+              )
+              return
+            }
+            if (coreFrom >= coreTo) {
+              this.showMessage(
+                '❌ Керн "от" должен быть меньше керн "до"',
+                'error'
+              )
+              return
+            }
+          }
+
           const layerData = {
             wellId: wellId,
             depth_from: depthFrom,
             depth_to: depthTo,
+            core_from: coreFrom,
+            core_to: coreTo,
             lithology: formData.get('lithology'),
             description: formData.get('description'),
             thickness: (depthTo - depthFrom).toFixed(2),
@@ -748,11 +804,11 @@
 
           if (!layers || layers.length === 0) {
             container.innerHTML = `
-                        <div class="empty-state">
-                            <p>📝 Нет добавленных слоев</p>
-                            <p><small>Добавьте первый слой</small></p>
-                        </div>
-                    `
+            <div class="empty-state">
+                <p>📝 Нет добавленных слоев</p>
+                <p><small>Добавьте первый слой</small></p>
+            </div>
+        `
             return
           }
 
@@ -764,28 +820,35 @@
           container.innerHTML = layers
             .map(
               (layer) => `
-              <div class="layer-item">
-                  <div class="layer-info">
-                      <div class="layer-depth">
-                          ${layer.depth_from} - ${layer.depth_to} м
-                      </div>
-                      <div class="layer-lithology">
-                          <span class="lithology-badge ${layer.lithology}">
-                              ${this.getLithologyDisplay(layer.lithology)}
-                          </span>
-                          ${layer.description || ''}
-                      </div>
-                  </div>
-                  <div class="layer-actions">
-                      <div class="layer-thickness">
-                          ${layer.thickness} м
-                      </div>
-                      <button class="btn-delete-small" onclick="app.deleteLayer('${
-                        layer.id
-                      }')" title="Удалить слой">🗑️</button>
-                  </div>
-              </div>
-          `
+            <div class="layer-item">
+                <div class="layer-info">
+                    <div class="layer-depth">
+                        ${layer.depth_from} - ${layer.depth_to} м
+                    </div>
+                    <div class="layer-lithology">
+                        <span class="lithology-badge ${layer.lithology}">
+                            ${this.getLithologyDisplay(layer.lithology)}
+                        </span>
+                        ${layer.description || ''}
+                    </div>
+                    ${
+                      layer.core_from !== null && layer.core_to !== null
+                        ? `<div class="layer-core" style="margin-top: 5px; color: #27ae60; font-size: 14px;">
+                            🔬 Керн: ${layer.core_from} - ${layer.core_to} м
+                        </div>`
+                        : ''
+                    }
+                </div>
+                <div class="layer-actions">
+                    <div class="layer-thickness">
+                        ${layer.thickness} м
+                    </div>
+                    <button class="btn-delete-small" onclick="app.deleteLayer('${
+                      layer.id
+                    }')" title="Удалить слой">🗑️</button>
+                </div>
+            </div>
+        `
             )
             .join('')
         }
@@ -861,6 +924,8 @@
             'Глубина от, м': layer.depth_from,
             'Глубина до, м': layer.depth_to,
             'Мощность, м': layer.thickness,
+            'Керн от, м': layer.core_from || '',
+            'Керн до, м': layer.core_to || '',
             Литология: this.getLithologyDisplay(layer.lithology),
             Описание: layer.description || '',
             'Дата создания': new Date(layer.createdAt).toLocaleDateString(
