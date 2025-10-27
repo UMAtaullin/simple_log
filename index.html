@@ -291,11 +291,20 @@
           margin-bottom: 10px;
           border-left: 4px solid #e74c3c;
         }
-        .layer-core {
-          color: #27ae60;
-          font-size: 14px;
-          font-weight: 500;
-          margin-top: 5px;
+
+        .btn-edit-small {
+          background: #3498db;
+          color: white;
+          border: none;
+          padding: 4px 8px;
+          border-radius: 3px;
+          cursor: pointer;
+          font-size: 12px;
+          margin-left: 5px;
+        }
+
+        .btn-edit-small:hover {
+          background: #2980b9;
         }
       }
     </style>
@@ -408,29 +417,6 @@
                   type="number"
                   id="depth-to"
                   name="depth_to"
-                  step="0.1"
-                  placeholder="2.5"
-                />
-              </div>
-            </div>
-            <!-- ДОБАВЬТЕ ЭТОТ БЛОК ПОСЛЕ ПОЛЕЙ ГЛУБИНЫ -->
-            <div style="display: flex; gap: 10px; margin-bottom: 15px">
-              <div class="form-group" style="flex: 1">
-                <label for="core-from">Керн от (м)</label>
-                <input
-                  type="number"
-                  id="core-from"
-                  name="core_from"
-                  step="0.1"
-                  placeholder="0.0"
-                />
-              </div>
-              <div class="form-group" style="flex: 1">
-                <label for="core-to">Керн до (м)</label>
-                <input
-                  type="number"
-                  id="core-to"
-                  name="core_to"
                   step="0.1"
                   placeholder="2.5"
                 />
@@ -611,12 +597,10 @@
           const wellId = formData.get('well_id')
           const depthFrom = parseFloat(formData.get('depth_from'))
           const depthTo = parseFloat(formData.get('depth_to'))
-          const coreFrom = parseFloat(formData.get('core_from')) || null
-          const coreTo = parseFloat(formData.get('core_to')) || null
 
           // Более надежная валидация чисел
           if (isNaN(depthFrom) || isNaN(depthTo)) {
-            this.showMessage('❌ Отобрали ли вы пробы с каждого слоя?', 'error')
+            this.showMessage('Ничего не забыл?', 'error')
             return
           }
 
@@ -633,42 +617,192 @@
             return
           }
 
-          // Валидация керна, если указан
-          if (coreFrom !== null && coreTo !== null) {
-            if (coreFrom < depthFrom || coreTo > depthTo) {
-              this.showMessage(
-                '❌ Интервал керна должен быть в пределах слоя',
-                'error'
-              )
-              return
-            }
-            if (coreFrom >= coreTo) {
-              this.showMessage(
-                '❌ Керн "от" должен быть меньше керн "до"',
-                'error'
-              )
-              return
-            }
-          }
-
           const layerData = {
             wellId: wellId,
             depth_from: depthFrom,
             depth_to: depthTo,
-            core_from: coreFrom,
-            core_to: coreTo,
             lithology: formData.get('lithology'),
             description: formData.get('description'),
             thickness: (depthTo - depthFrom).toFixed(2),
+            core_intervals: [], // Теперь это массив для нескольких интервалов
           }
 
           try {
-            await this.saveToLocalDB('layers', layerData)
+            const savedLayer = await this.saveToLocalDB('layers', layerData)
             this.showMessage('✅ Слой добавлен!', 'success')
             document.getElementById('new-layer-form').reset()
             await this.loadWellLayers(wellId)
+
+            // Автоматически открываем редактирование для добавления интервалов керна
+            setTimeout(() => this.editLayer(savedLayer.id), 500)
           } catch (error) {
             this.showMessage('❌ Ошибка при добавлении слоя', 'error')
+          }
+        }
+
+        // Редактирование слоя и управление интервалами керна
+        async editLayer(layerId) {
+          try {
+            const layers = await this.loadFromLocalDB('layers')
+            const layer = layers.find((l) => l.id === layerId)
+
+            if (!layer) {
+              this.showMessage('❌ Слой не найден', 'error')
+              return
+            }
+
+            // Создаем модальное окно для редактирования
+            const modalHtml = `
+            <div class="modal-overlay" id="edit-layer-modal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000;">
+                <div class="modal-content" style="background: white; padding: 20px; border-radius: 10px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto;">
+                    <h3>✏️ Редактирование слоя</h3>
+                    <div style="margin-bottom: 15px;">
+                        <strong>${layer.depth_from} - ${
+              layer.depth_to
+            } м</strong> • ${this.getLithologyDisplay(layer.lithology)}
+                    </div>
+                    
+                    <h4>📋 Интервалы отбора керна</h4>
+                    <div id="core-intervals-container" style="margin-bottom: 15px;">
+                        ${this.renderCoreIntervalsForm(layer)}
+                    </div>
+                    
+                    <button onclick="app.addCoreInterval('${layerId}')" class="btn" style="margin-bottom: 10px;">➕ Добавить интервал</button>
+                    
+                    <div class="action-buttons">
+                        <button onclick="app.saveLayerCoreIntervals('${layerId}')" class="btn">💾 Сохранить</button>
+                        <button onclick="app.closeEditModal()" class="btn btn-secondary">❌ Отмена</button>
+                    </div>
+                </div>
+            </div>
+        `
+
+            document.body.insertAdjacentHTML('beforeend', modalHtml)
+          } catch (error) {
+            console.error('Ошибка при редактировании слоя:', error)
+            this.showMessage('❌ Ошибка при редактировании слоя', 'error')
+          }
+        }
+
+        // Рендер формы интервалов керна
+        renderCoreIntervalsForm(layer) {
+          if (!layer.core_intervals || layer.core_intervals.length === 0) {
+            return '<div class="empty-state">Нет добавленных интервалов керна</div>'
+          }
+
+          return layer.core_intervals
+            .map(
+              (interval, index) => `
+        <div class="core-interval-item" style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center; padding: 10px; background: #f8f9fa; border-radius: 5px;">
+            <div style="flex: 1;">
+                <input type="number" id="core-from-${index}" value="${
+                interval.from || ''
+              }" step="0.1" placeholder="От (м)" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+            </div>
+            <div style="flex: 1;">
+                <input type="number" id="core-to-${index}" value="${
+                interval.to || ''
+              }" step="0.1" placeholder="До (м)" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+            </div>
+            <button type="button" onclick="app.removeCoreInterval('${
+              layer.id
+            }', ${index})" class="btn-delete-small">🗑️</button>
+        </div>
+    `
+            )
+            .join('')
+        }
+
+        // Добавление нового интервала керна
+        addCoreInterval(layerId) {
+          const container = document.getElementById('core-intervals-container')
+          const index = container.querySelectorAll('.core-interval-item').length
+
+          const newIntervalHtml = `
+        <div class="core-interval-item" style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center; padding: 10px; background: #f8f9fa; border-radius: 5px;">
+            <div style="flex: 1;">
+                <input type="number" id="core-from-${index}" step="0.1" placeholder="От (м)" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+            </div>
+            <div style="flex: 1;">
+                <input type="number" id="core-to-${index}" step="0.1" placeholder="До (м)" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+            </div>
+            <button type="button" onclick="this.parentElement.remove()" class="btn-delete-small">🗑️</button>
+        </div>
+    `
+
+          container.insertAdjacentHTML('beforeend', newIntervalHtml)
+        }
+
+        // Удаление интервала керна
+        async removeCoreInterval(layerId, index) {
+          try {
+            const layers = await this.loadFromLocalDB('layers')
+            const layer = layers.find((l) => l.id === layerId)
+
+            if (layer && layer.core_intervals) {
+              layer.core_intervals.splice(index, 1)
+              await this.saveToLocalDB('layers', layer)
+
+              // Обновляем форму
+              const container = document.getElementById(
+                'core-intervals-container'
+              )
+              container.innerHTML = this.renderCoreIntervalsForm(layer)
+            }
+          } catch (error) {
+            console.error('Ошибка при удалении интервала:', error)
+          }
+        }
+
+        // Сохранение интервалов керна
+        async saveLayerCoreIntervals(layerId) {
+          try {
+            const layers = await this.loadFromLocalDB('layers')
+            const layer = layers.find((l) => l.id === layerId)
+
+            if (!layer) {
+              this.showMessage('❌ Слой не найден', 'error')
+              return
+            }
+
+            // Собираем все интервалы из формы
+            const coreIntervals = []
+            const intervalElements = document.querySelectorAll(
+              '.core-interval-item'
+            )
+
+            intervalElements.forEach((element, index) => {
+              const fromInput = document.getElementById(`core-from-${index}`)
+              const toInput = document.getElementById(`core-to-${index}`)
+
+              if (fromInput || toInput) {
+                const from = fromInput ? parseFloat(fromInput.value) : null
+                const to = toInput ? parseFloat(toInput.value) : null
+
+                // Добавляем только если есть хотя бы одно значение
+                if (from !== null || to !== null) {
+                  coreIntervals.push({ from, to })
+                }
+              }
+            })
+
+            layer.core_intervals = coreIntervals
+            await this.saveToLocalDB('layers', layer)
+
+            this.closeEditModal()
+            this.showMessage('✅ Интервалы керна сохранены!', 'success')
+            await this.loadWellLayers(this.currentWell)
+          } catch (error) {
+            console.error('Ошибка при сохранении интервалов:', error)
+            this.showMessage('❌ Ошибка при сохранении', 'error')
+          }
+        }
+
+        // Закрытие модального окна
+        closeEditModal() {
+          const modal = document.getElementById('edit-layer-modal')
+          if (modal) {
+            modal.remove()
           }
         }
 
@@ -799,6 +933,7 @@
         }
 
         // Отображение слоев
+        // Отображение слоев
         renderLayers(layers) {
           const container = document.getElementById('layers-list')
 
@@ -831,18 +966,15 @@
                         </span>
                         ${layer.description || ''}
                     </div>
-                    ${
-                      layer.core_from !== null && layer.core_to !== null
-                        ? `<div class="layer-core" style="margin-top: 5px; color: #27ae60; font-size: 14px;">
-                            🔬 Керн: ${layer.core_from} - ${layer.core_to} м
-                        </div>`
-                        : ''
-                    }
+                    ${this.renderCoreIntervals(layer)}
                 </div>
                 <div class="layer-actions">
                     <div class="layer-thickness">
                         ${layer.thickness} м
                     </div>
+                    <button class="btn-edit-small" onclick="app.editLayer('${
+                      layer.id
+                    }')" title="Редактировать слой">✏️</button>
                     <button class="btn-delete-small" onclick="app.deleteLayer('${
                       layer.id
                     }')" title="Удалить слой">🗑️</button>
@@ -851,6 +983,31 @@
         `
             )
             .join('')
+        }
+
+        // Новый метод для отображения интервалов керна
+        renderCoreIntervals(layer) {
+          if (!layer.core_intervals || layer.core_intervals.length === 0) {
+            return ''
+          }
+
+          const intervalsHtml = layer.core_intervals
+            .map((interval) => {
+              if (interval.from !== null && interval.to !== null) {
+                return `🔬 Керн: ${interval.from} - ${interval.to} м`
+              } else if (interval.from !== null) {
+                return `🔬 Керн от: ${interval.from} м`
+              } else if (interval.to !== null) {
+                return `🔬 Керн до: ${interval.to} м`
+              } else {
+                return `🔬 Керн: нарушенный`
+              }
+            })
+            .join('<br>')
+
+          return `<div class="layer-core" style="margin-top: 5px; color: #27ae60; font-size: 14px;">
+        ${intervalsHtml}
+    </div>`
         }
 
         // Получение отображаемого названия литологии
@@ -919,19 +1076,37 @@
             wellMap[well.id] = well.name
           })
 
-          const layersData = layers.map((layer) => ({
-            Скважина: wellMap[layer.wellId] || 'Неизвестно',
-            'Глубина от, м': layer.depth_from,
-            'Глубина до, м': layer.depth_to,
-            'Мощность, м': layer.thickness,
-            'Керн от, м': layer.core_from || '',
-            'Керн до, м': layer.core_to || '',
-            Литология: this.getLithologyDisplay(layer.lithology),
-            Описание: layer.description || '',
-            'Дата создания': new Date(layer.createdAt).toLocaleDateString(
-              'ru-RU'
-            ),
-          }))
+          // В методе createExcelWorkbook обновите раздел layersData:
+          const layersData = layers.map((layer) => {
+            const coreIntervals =
+              layer.core_intervals && layer.core_intervals.length > 0
+                ? layer.core_intervals
+                    .map((interval) => {
+                      if (interval.from !== null && interval.to !== null) {
+                        return `${interval.from}-${interval.to} м`
+                      } else if (interval.from !== null) {
+                        return `от ${interval.from} м`
+                      } else if (interval.to !== null) {
+                        return `до ${interval.to} м`
+                      }
+                      return 'нарушенный'
+                    })
+                    .join('; ')
+                : ''
+
+            return {
+              Скважина: wellMap[layer.wellId] || 'Неизвестно',
+              'Глубина от, м': layer.depth_from,
+              'Глубина до, м': layer.depth_to,
+              'Мощность, м': layer.thickness,
+              'Интервалы керна': coreIntervals,
+              Литология: this.getLithologyDisplay(layer.lithology),
+              Описание: layer.description || '',
+              'Дата создания': new Date(layer.createdAt).toLocaleDateString(
+                'ru-RU'
+              ),
+            }
+          })
 
           const layersSheet = XLSX.utils.json_to_sheet(layersData)
           XLSX.utils.book_append_sheet(
