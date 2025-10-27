@@ -796,6 +796,17 @@
                   ? parseFloat(toInput.value)
                   : null
 
+              // Валидация: если указаны оба значения, проверяем что "от" меньше "до"
+              if (from !== null && to !== null && from > to) {
+                this.showMessage(
+                  `❌ В интервале ${
+                    index + 1
+                  }: "от" (${from}) должно быть меньше "до" (${to})`,
+                  'error'
+                )
+                return
+              }
+
               // Добавляем только если есть хотя бы одно значение
               if (from !== null || to !== null) {
                 coreIntervals.push({ from, to })
