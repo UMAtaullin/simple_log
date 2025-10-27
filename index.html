@@ -1087,9 +1087,24 @@
               const well = wellMap[layer.wellId]
 
               layer.core_intervals.forEach((interval) => {
+                // Определяем, является ли интервал одиночным значением
+                const isSingleValue =
+                  (interval.from !== null && interval.to === null) ||
+                  (interval.from === null && interval.to !== null) ||
+                  (interval.from !== null &&
+                    interval.to !== null &&
+                    interval.from === interval.to)
+
+                // Определяем структуру: для одиночных значений - "н", для диапазонов - "п"
+                const structure = isSingleValue ? 'н' : 'п'
+
                 // Форматируем глубину отбора
                 let depthInterval = ''
-                if (interval.from !== null && interval.to !== null) {
+                if (
+                  interval.from !== null &&
+                  interval.to !== null &&
+                  interval.from !== interval.to
+                ) {
                   depthInterval = `${interval.from}-${interval.to}`
                 } else if (interval.from !== null) {
                   depthInterval = `${interval.from}`
@@ -1104,11 +1119,11 @@
                   Дата: new Date(layer.createdAt).toLocaleDateString('ru-RU'),
                   'Точка отбора образца': well ? well.name : 'Неизвестно',
                   'Глубина отбора образца (пробы)': depthInterval.replace(
-                    '.',
+                    /\./g,
                     ','
                   ),
                   'Состояние образца (пробы) талый/мерзлый(т/м)': 'т', // по умолчанию талый
-                  'Структура образца (пробы)(п/н)': 'п', // по умолчанию плотный
+                  'Структура образца (пробы)(п/н)': structure,
                   'Полевое наименование образца(пробы)':
                     this.getLithologyDisplay(layer.lithology),
                 }
