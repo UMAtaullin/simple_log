@@ -4,7 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Буровой журнал</title>
-    <script src="xlsx.full.min.js"></script>
+    <script>
+      // Пытаемся загрузить с CDN, если нет - используем локальную
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      script.onerror = function() {
+          const localScript = document.createElement('script');
+          localScript.src = 'xlsx.full.min.js';
+          document.head.appendChild(localScript);
+      };
+      document.head.appendChild(script);
+    </script>
     <style>
       * {
         margin: 0;
