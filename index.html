@@ -203,7 +203,7 @@
 
       .empty-state {
         text-align: center;
-        padding: 40px 20px;
+        padding: 30px 20px;
         color: #7f8c8d;
       }
 
@@ -287,6 +287,7 @@
 
         .layer-actions {
           display: flex;
+          flex-direction: column;
           align-items: center;
           gap: 10px;
         }
@@ -668,7 +669,7 @@
             depth_to: depthTo,
             lithology: formData.get('lithology'),
             description: formData.get('description'),
-            thickness: (depthTo - depthFrom).toFixed(2),
+            thickness: (depthTo - depthFrom).toFixed(1),
             core_intervals: [], // Будет заполняться при редактировании
           }
 
@@ -710,8 +711,8 @@
                       
                       <h4>📋 Интервалы отбора керна</h4>
                       <div style="font-size: 12px; color: #666; margin-bottom: 10px; background: #f8f9fa; padding: 10px; border-radius: 5px;">
-                          Для <strong>монолитов</strong> укажите от и до → структура будет "п"<br>
-                          Для <strong>нарушенных</strong> только от → структура будет "н"<br>
+                          Для <strong>монолитов</strong> от и до → структура будет "п"<br>
+                          Для <strong>нарушенных</strong> только от → будет "н"<br>
                       </div>
                       <div id="core-intervals-container" style="margin-bottom: 15px;">
                           ${this.renderCoreIntervalsForm(layer)}
@@ -737,7 +738,7 @@
         // Рендер формы интервалов керна
         renderCoreIntervalsForm(layer) {
           if (!layer.core_intervals || layer.core_intervals.length === 0) {
-            return '<div class="empty-state">Нет добавленных интервалов керна</div>'
+            return '<div class="empty-state">Добавьте интервал отбора</div>'
           }
 
           return layer.core_intervals
@@ -1218,68 +1219,94 @@
 
         // Создание Excel файла
         createExcelWorkbook(wells, layers) {
-          const workbook = XLSX.utils.book_new()
+            const workbook = XLSX.utils.book_new();
 
-          // Лист со скважинами
-          const wellsData = wells.map((well) => ({
-            Название: well.name,
-            Участок: well.area,
-            Сооружение: well.structure || '',
-            'Проектная глубина, м': well.planned_depth || 0,
-            'Дата создания': new Date(well.createdAt).toLocaleDateString(
-              'ru-RU'
-            ),
-          }))
+            // Создаем карту скважин для быстрого поиска
+            const wellMap = {};
+            wells.forEach((well) => {
+                wellMap[well.id] = well;
+            });
 
-          const wellsSheet = XLSX.utils.json_to_sheet(wellsData)
-          XLSX.utils.book_append_sheet(workbook, wellsSheet, 'Скважины')
+            // Подготавливаем данные для листа скважин с дополнительными колонками
+            const wellsData = wells.map((well) => {
+                // Находим все слои этой скважины
+                const wellLayers = layers.filter(layer => layer.wellId === well.id);
+                
+                // Вычисляем фактическую глубину (максимальная глубина "до" среди слоев)
+                const actualDepth = wellLayers.length > 0 
+                    ? Math.max(...wellLayers.map(layer => parseFloat(layer.depth_to)))
+                    : 0;
 
-          // Лист со слоями
-          const wellMap = {}
-          wells.forEach((well) => {
-            wellMap[well.id] = well.name
-          })
+                // Считаем количество монолитов и нарушенных образцов
+                let monolithCount = 0;
+                let disturbedCount = 0;
 
-          // В методе createExcelWorkbook обновите раздел layersData:
-          const layersData = layers.map((layer) => {
-            const coreIntervals =
-              layer.core_intervals && layer.core_intervals.length > 0
-                ? layer.core_intervals
-                    .map((interval) => {
-                      if (interval.from !== null && interval.to !== null) {
-                        return `${interval.from}-${interval.to}`
-                      } else if (interval.from !== null) {
-                        return `${interval.from}`
-                      } else if (interval.to !== null) {
-                        return `${interval.to}`
-                      }
-                      return 'нарушенный'
-                    })
-                    .join('; ')
-                : ''
+                wellLayers.forEach(layer => {
+                    if (layer.core_intervals && layer.core_intervals.length > 0) {
+                        layer.core_intervals.forEach(interval => {
+                            // Определяем, является ли интервал одиночным значением
+                            const isSingleValue = (interval.from !== null && interval.to === null) || 
+                                                (interval.from === null && interval.to !== null) ||
+                                                (interval.from !== null && interval.to !== null && interval.from === interval.to);
 
-            return {
-              Скважина: wellMap[layer.wellId] || 'Неизвестно',
-              'Глубина от, м': layer.depth_from,
-              'Глубина до, м': layer.depth_to,
-              'Мощность, м': layer.thickness,
-              'Интервалы керна': coreIntervals,
-              Литология: this.getLithologyDisplay(layer.lithology),
-              Описание: layer.description || '',
-              'Дата создания': new Date(layer.createdAt).toLocaleDateString(
-                'ru-RU'
-              ),
-            }
-          })
+                            // Считаем монолиты (диапазоны) и нарушенные (одиночные значения)
+                            if (isSingleValue) {
+                                disturbedCount++;
+                            } else {
+                                monolithCount++;
+                            }
+                        });
+                    }
+                });
 
-          const layersSheet = XLSX.utils.json_to_sheet(layersData)
-          XLSX.utils.book_append_sheet(
-            workbook,
-            layersSheet,
-            'Геологические слои'
-          )
+              return {
+                  'Название': well.name,
+                  'Участок': well.area,
+                  'Сооружение': well.structure || '',
+                  'Проектная глубина, м': well.planned_depth || 0,
+                  'Фактическая глубина, м': actualDepth,
+                  'Количество монолитов': monolithCount,
+                  'Количество нарушенных образцов': disturbedCount,
+                  'Всего образцов': monolithCount + disturbedCount, // Новая колонка
+                  'Дата создания': new Date(well.createdAt).toLocaleDateString('ru-RU'),
+              };
+            });
 
-          return workbook
+            const wellsSheet = XLSX.utils.json_to_sheet(wellsData);
+            XLSX.utils.book_append_sheet(workbook, wellsSheet, 'Скважины');
+
+            // Лист со слоями (оставляем без изменений)
+            const layersData = layers.map((layer) => {
+                // Форматируем интервалы керна
+                const coreIntervals = layer.core_intervals && layer.core_intervals.length > 0 
+                    ? layer.core_intervals.map(interval => {
+                        if (interval.from !== null && interval.to !== null && interval.from !== interval.to) {
+                            return `${interval.from}-${interval.to}`;
+                        } else if (interval.from !== null) {
+                            return `${interval.from}`;
+                        } else if (interval.to !== null) {
+                            return `${interval.to}`;
+                        }
+                        return 'нарушенный';
+                    }).join('; ')
+                    : '';
+
+                return {
+                    'Скважина': wellMap[layer.wellId] ? wellMap[layer.wellId].name : 'Неизвестно',
+                    'Глубина от, м': layer.depth_from,
+                    'Глубина до, м': layer.depth_to,
+                    'Мощность, м': layer.thickness,
+                    'Интервалы керна': coreIntervals,
+                    'Литология': this.getLithologyDisplay(layer.lithology),
+                    'Описание': layer.description || '',
+                    'Дата создания': new Date(layer.createdAt).toLocaleDateString('ru-RU'),
+                };
+            });
+
+            const layersSheet = XLSX.utils.json_to_sheet(layersData);
+            XLSX.utils.book_append_sheet(workbook, layersSheet, 'Геологические слои');
+
+            return workbook;
         }
 
         // Скачивание Excel файла
