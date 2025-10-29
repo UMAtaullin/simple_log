@@ -687,52 +687,143 @@
         }
 
         // Редактирование слоя и управление интервалами керна
+        // Редактирование слоя (расширенная версия)
         async editLayer(layerId) {
-          try {
-            const layers = await this.loadFromLocalDB('layers')
-            const layer = layers.find((l) => l.id === layerId)
+            try {
+                const layers = await this.loadFromLocalDB('layers');
+                const wells = await this.loadFromLocalDB('wells');
+                const layer = layers.find(l => l.id === layerId);
+                
+                if (!layer) {
+                    this.showMessage('❌ Слой не найден', 'error');
+                    return;
+                }
 
-            if (!layer) {
-              this.showMessage('❌ Слой не найден', 'error')
-              return
+                const well = wells.find(w => w.id === layer.wellId);
+
+                // Создаем модальное окно для редактирования
+                const modalHtml = `
+                    <div class="modal-overlay" id="edit-layer-modal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000;">
+                        <div class="modal-content" style="background: white; padding: 20px; border-radius: 10px; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto;">
+                            <h3>✏️ Редактирование слоя</h3>
+                            <div style="margin-bottom: 15px; color: #666;">
+                                Скважина: <strong>${well ? well.name : 'Неизвестно'}</strong>
+                            </div>
+                            
+                            <h4>📏 Основные параметры</h4>
+                            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                                <div style="flex: 1;">
+                                    <label for="edit-depth-from">От (м)</label>
+                                    <input type="number" id="edit-depth-from" value="${layer.depth_from}" step="0.1" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                </div>
+                                <div style="flex: 1;">
+                                    <label for="edit-depth-to">До (м)</label>
+                                    <input type="number" id="edit-depth-to" value="${layer.depth_to}" step="0.1" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                </div>
+                            </div>
+                            
+                            <div style="margin-bottom: 15px;">
+                                <label for="edit-lithology">Литология</label>
+                                <select id="edit-lithology" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                    <option value="prs" ${layer.lithology === 'prs' ? 'selected' : ''}>🟫 ПРС</option>
+                                    <option value="peat" ${layer.lithology === 'peat' ? 'selected' : ''}>🟤 Торф</option>
+                                    <option value="sand" ${layer.lithology === 'sand' ? 'selected' : ''}>🟡 Песок</option>
+                                    <option value="loam" ${layer.lithology === 'loam' ? 'selected' : ''}>🔵 Суглинок</option>
+                                    <option value="sandy_loam" ${layer.lithology === 'sandy_loam' ? 'selected' : ''}>🟠 Супесь</option>
+                                </select>
+                            </div>
+                            
+                            <div style="margin-bottom: 15px;">
+                                <label for="edit-description">Описание</label>
+                                <textarea id="edit-description" rows="2" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">${layer.description || ''}</textarea>
+                            </div>
+                            
+                            <h4>📋 Интервалы отбора керна</h4>
+                            <div style="font-size: 12px; color: #666; margin-bottom: 10px;">
+                                <strong>Подсказка:</strong> Для монолитов укажите диапазон, для нарушенных проб - одно значение
+                            </div>
+                            <div id="core-intervals-container" style="margin-bottom: 15px;">
+                                ${this.renderCoreIntervalsForm(layer)}
+                            </div>
+                            
+                            <button onclick="app.addCoreInterval('${layerId}')" class="btn" style="margin-bottom: 10px;">➕ Добавить интервал</button>
+                            
+                            <div class="action-buttons">
+                                <button onclick="app.saveLayerChanges('${layerId}')" class="btn">💾 Сохранить все изменения</button>
+                                <button onclick="app.closeEditModal()" class="btn btn-secondary">❌ Отмена</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                document.body.insertAdjacentHTML('beforeend', modalHtml);
+                
+            } catch (error) {
+                console.error('Ошибка при редактировании слоя:', error);
+                this.showMessage('❌ Ошибка при редактировании слоя', 'error');
             }
+        }
 
-            // Создаем модальное окно для редактирования
-            // В методе editLayer обновим HTML модального окна:
-            const modalHtml = `
-              <div class="modal-overlay" id="edit-layer-modal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000;">
-                  <div class="modal-content" style="background: white; padding: 20px; border-radius: 10px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto;">
-                      <h3>✏️ Редактирование слоя</h3>
-                      <div style="margin-bottom: 15px;">
-                          <strong>${layer.depth_from} - ${
-              layer.depth_to
-            } м</strong> • ${this.getLithologyDisplay(layer.lithology)}
-                      </div>
-                      
-                      <h4>📋 Интервалы отбора керна</h4>
-                      <div style="font-size: 12px; color: #666; margin-bottom: 10px; background: #f8f9fa; padding: 10px; border-radius: 5px;">
-                          Для <strong>монолитов</strong> от и до → структура будет "п"<br>
-                          Для <strong>нарушенных</strong> только от → будет "н"<br>
-                      </div>
-                      <div id="core-intervals-container" style="margin-bottom: 15px;">
-                          ${this.renderCoreIntervalsForm(layer)}
-                      </div>
-                      
-                      <button onclick="app.addCoreInterval('${layerId}')" class="btn" style="margin-bottom: 10px;">➕ Добавить интервал</button>
-                      
-                      <div class="action-buttons">
-                          <button onclick="app.saveLayerCoreIntervals('${layerId}')" class="btn">💾 Сохранить</button>
-                          <button onclick="app.closeEditModal()" class="btn btn-secondary">❌ Отмена</button>
-                      </div>
-                  </div>
-              </div>
-          `
+        // Сохранение изменений слоя
+        async saveLayerChanges(layerId) {
+            try {
+                const layers = await this.loadFromLocalDB('layers');
+                const layer = layers.find(l => l.id === layerId);
+                
+                if (!layer) {
+                    this.showMessage('❌ Слой не найден', 'error');
+                    return;
+                }
 
-            document.body.insertAdjacentHTML('beforeend', modalHtml)
-          } catch (error) {
-            console.error('Ошибка при редактировании слоя:', error)
-            this.showMessage('❌ Ошибка при редактировании слоя', 'error')
-          }
+                // Получаем обновленные данные
+                const depthFrom = parseFloat(document.getElementById('edit-depth-from').value);
+                const depthTo = parseFloat(document.getElementById('edit-depth-to').value);
+                
+                // Валидация глубины
+                if (isNaN(depthFrom) || isNaN(depthTo) || depthFrom >= depthTo) {
+                    this.showMessage('❌ Проверьте корректность глубины', 'error');
+                    return;
+                }
+
+                // Собираем интервалы керна
+                const coreIntervals = [];
+                const intervalElements = document.querySelectorAll('.core-interval-item');
+                
+                intervalElements.forEach((element, index) => {
+                    const fromInput = document.getElementById(`core-from-${index}`);
+                    const toInput = document.getElementById(`core-to-${index}`);
+                    const stateSelect = document.getElementById(`core-state-${index}`);
+                    
+                    const from = fromInput && fromInput.value !== '' ? parseFloat(fromInput.value) : null;
+                    const to = toInput && toInput.value !== '' ? parseFloat(toInput.value) : null;
+                    const state = stateSelect ? stateSelect.value : 'т';
+                    
+                    if (from !== null || to !== null) {
+                        coreIntervals.push({ from, to, state });
+                    }
+                });
+
+                // Обновляем слой
+                const updatedLayer = {
+                    ...layer,
+                    depth_from: depthFrom,
+                    depth_to: depthTo,
+                    lithology: document.getElementById('edit-lithology').value,
+                    description: document.getElementById('edit-description').value,
+                    thickness: (depthTo - depthFrom).toFixed(2),
+                    core_intervals: coreIntervals
+                };
+
+                await this.saveToLocalDB('layers', updatedLayer);
+                
+                this.closeEditModal();
+                this.showMessage('✅ Слой обновлен!', 'success');
+                await this.loadWellLayers(this.currentWell);
+                
+            } catch (error) {
+                console.error('Ошибка при сохранении слоя:', error);
+                this.showMessage('❌ Ошибка при сохранении слоя', 'error');
+            }
         }
 
         // Рендер формы интервалов керна
@@ -974,46 +1065,179 @@
 
         // Отображение скважин
         renderWells(wells) {
-          const container = document.getElementById('wells-list')
+            const container = document.getElementById('wells-list');
 
-          if (!wells || wells.length === 0) {
-            container.innerHTML = `
-                        <div class="empty-state">
-                            <p>📝 Нет созданных скважин</p>
-                            <p><small>Создайте первую скважину</small></p>
+            if (!wells || wells.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <p>📝 Нет созданных скважин</p>
+                        <p><small>Создайте первую скважину</small></p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = wells
+                .map(
+                    (well) => `
+                    <div class="well-card">
+                        <div onclick="app.showWorkPage('${well.id}')" style="flex-grow: 1; cursor: pointer;">
+                            <h3>${well.name}</h3>
+                            <div class="well-meta">
+                                <p>📍 ${well.area}</p>
+                                ${well.structure ? `<p>🏗️ ${well.structure}</p>` : ''}
+                                ${well.planned_depth ? `<p>📏 ${well.planned_depth} м</p>` : ''}
+                            </div>
+                            <small>📅 ${new Date(well.createdAt).toLocaleDateString('ru-RU')}</small>
                         </div>
-                    `
-            return
-          }
+                        <div style="display: flex; flex-direction: column; gap: 5px;">
+                            <button class="btn-copy" onclick="app.copyWell('${well.id}')" title="Копировать скважину">📋</button>
+                            <button class="btn-edit" onclick="app.editWell('${well.id}')" title="Редактировать скважину">✏️</button>
+                            <button class="btn-delete" onclick="app.deleteWell('${well.id}')" title="Удалить скважину">🗑️</button>
+                        </div>
+                    </div>
+                `
+                )
+                .join('');
+        }
 
-          container.innerHTML = wells
-            .map(
-              (well) => `
-              <div class="well-card">
-                  <div onclick="app.showWorkPage('${
-                    well.id
-                  }')" style="flex-grow: 1;">
-                      <h3>${well.name}</h3>
-                      <div class="well-meta">
-                          <p>📍 ${well.area}</p>
-                          ${well.structure ? `<p>🏗️ ${well.structure}</p>` : ''}
-                          ${
-                            well.planned_depth
-                              ? `<p>📏 ${well.planned_depth} м</p>`
-                              : ''
-                          }
-                      </div>
-                      <small>📅 ${new Date(well.createdAt).toLocaleDateString(
-                        'ru-RU'
-                      )}</small>
-                  </div>
-                  <button class="btn-delete" onclick="app.deleteWell('${
-                    well.id
-                  }')" title="Удалить скважину">🗑️</button>
-              </div>
-          `
-            )
-            .join('')
+        // Копирование скважины
+        async copyWell(wellId) {
+            try {
+                const wells = await this.loadFromLocalDB('wells');
+                const layers = await this.loadFromLocalDB('layers');
+                
+                const originalWell = wells.find(w => w.id === wellId);
+                if (!originalWell) {
+                    this.showMessage('❌ Скважина не найдена', 'error');
+                    return;
+                }
+
+                // Создаем копию скважины
+                const copiedWell = {
+                    ...originalWell,
+                    id: `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                    name: `${originalWell.name} (копия)`,
+                    createdAt: new Date().toISOString()
+                };
+
+                // Сохраняем копию скважины
+                await this.saveToLocalDB('wells', copiedWell);
+
+                // Копируем все слои скважины
+                const wellLayers = layers.filter(layer => layer.wellId === wellId);
+                for (const layer of wellLayers) {
+                    const copiedLayer = {
+                        ...layer,
+                        id: `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                        wellId: copiedWell.id,
+                        createdAt: new Date().toISOString()
+                    };
+                    await this.saveToLocalDB('layers', copiedLayer);
+                }
+
+                this.showMessage('✅ Скважина скопирована!', 'success');
+                this.loadWells();
+                
+            } catch (error) {
+                console.error('Ошибка при копировании скважины:', error);
+                this.showMessage('❌ Ошибка при копировании скважины', 'error');
+            }
+        }
+
+        // Редактирование скважины
+        async editWell(wellId) {
+            try {
+                const wells = await this.loadFromLocalDB('wells');
+                const well = wells.find(w => w.id === wellId);
+                
+                if (!well) {
+                    this.showMessage('❌ Скважина не найдена', 'error');
+                    return;
+                }
+
+                // Создаем модальное окно для редактирования скважины
+                const modalHtml = `
+                    <div class="modal-overlay" id="edit-well-modal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000;">
+                        <div class="modal-content" style="background: white; padding: 20px; border-radius: 10px; max-width: 500px; width: 90%;">
+                            <h3>✏️ Редактирование скважины</h3>
+                            <form id="edit-well-form">
+                                <div class="form-group">
+                                    <label for="edit-well-name">Название скважины *</label>
+                                    <input type="text" id="edit-well-name" value="${well.name}" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
+                                </div>
+                                <div class="form-group">
+                                    <label for="edit-well-area">Участок *</label>
+                                    <input type="text" id="edit-well-area" value="${well.area}" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
+                                </div>
+                                <div class="form-group">
+                                    <label for="edit-well-structure">Сооружение</label>
+                                    <input type="text" id="edit-well-structure" value="${well.structure || ''}" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
+                                </div>
+                                <div class="form-group">
+                                    <label for="edit-well-depth">Проектная глубина (м) *</label>
+                                    <input type="number" id="edit-well-depth" value="${well.planned_depth || 0}" step="0.1" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
+                                </div>
+                                <div class="action-buttons">
+                                    <button type="submit" class="btn">💾 Сохранить</button>
+                                    <button type="button" onclick="app.closeEditWellModal()" class="btn btn-secondary">❌ Отмена</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                `;
+                
+                document.body.insertAdjacentHTML('beforeend', modalHtml);
+                
+                // Добавляем обработчик формы
+                document.getElementById('edit-well-form').addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.saveWellChanges(wellId);
+                });
+                
+            } catch (error) {
+                console.error('Ошибка при редактировании скважины:', error);
+                this.showMessage('❌ Ошибка при редактировании скважины', 'error');
+            }
+        }
+
+        // Сохранение изменений скважины
+        async saveWellChanges(wellId) {
+            try {
+                const wells = await this.loadFromLocalDB('wells');
+                const well = wells.find(w => w.id === wellId);
+                
+                if (!well) {
+                    this.showMessage('❌ Скважина не найдена', 'error');
+                    return;
+                }
+
+                const updatedWell = {
+                    ...well,
+                    name: document.getElementById('edit-well-name').value,
+                    area: document.getElementById('edit-well-area').value,
+                    structure: document.getElementById('edit-well-structure').value,
+                    planned_depth: parseFloat(document.getElementById('edit-well-depth').value) || 0
+                };
+
+                await this.saveToLocalDB('wells', updatedWell);
+                
+                this.closeEditWellModal();
+                this.showMessage('✅ Скважина обновлена!', 'success');
+                this.loadWells();
+                
+            } catch (error) {
+                console.error('Ошибка при сохранении скважины:', error);
+                this.showMessage('❌ Ошибка при сохранении скважины', 'error');
+            }
+        }
+
+        // Закрытие модального окна редактирования скважины
+        closeEditWellModal() {
+            const modal = document.getElementById('edit-well-modal');
+            if (modal) {
+                modal.remove();
+            }
         }
 
         // Отображение слоев
